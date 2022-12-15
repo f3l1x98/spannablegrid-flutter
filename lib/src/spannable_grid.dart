@@ -37,6 +37,7 @@ import 'spannable_grid_options.dart';
 /// - [SpannableGridEditingStrategy]
 /// - [SpannableGridStyle]
 /// - [SpannableGridSize]
+/// - [SpannableGridCompactingStrategy]
 ///
 class SpannableGrid extends StatefulWidget {
   SpannableGrid({
@@ -142,7 +143,6 @@ class _SpannableGridState extends State<SpannableGrid> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // TODO test
     if (widget.compactingStrategy != SpannableGridCompactingStrategy.none) {
       _compactCells();
     }
@@ -152,7 +152,6 @@ class _SpannableGridState extends State<SpannableGrid> {
   @override
   void didUpdateWidget(SpannableGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // TODO test
     if (widget.compactingStrategy != SpannableGridCompactingStrategy.none) {
       _compactCells();
     }
@@ -316,7 +315,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     if (widget.compactingStrategy == SpannableGridCompactingStrategy.rowOnly ||
         widget.compactingStrategy == SpannableGridCompactingStrategy.rowFirst) {
       // Sort by rows (then columns)
-      // Sorting required due to otherwise compacting missing cell (because it tries to compact before cell above/left of it)
+      // Sorting required due to otherwise compacting missing cell (because it tries to compact this cell before cell above/left of it)
       widget.cells.sort((cell1, cell2) {
         int rowCompare = cell1.row.compareTo(cell2.row);
         return rowCompare == 0
@@ -336,7 +335,7 @@ class _SpannableGridState extends State<SpannableGrid> {
         widget.compactingStrategy ==
             SpannableGridCompactingStrategy.columnFirst) {
       // Sort by columns (then rows)
-      // Sorting required due to otherwise compacting missing cell (because it tries to compact before cell above/left of it)
+      // Sorting required due to otherwise compacting missing cell (because it tries to compact this cell before cell above/left of it)
       widget.cells.sort((cell1, cell2) {
         int colCompare = cell1.column.compareTo(cell2.column);
         return colCompare == 0 ? cell1.row.compareTo(cell2.row) : colCompare;
