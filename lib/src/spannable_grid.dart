@@ -37,6 +37,7 @@ import 'spannable_grid_options.dart';
 /// - [SpannableGridEditingStrategy]
 /// - [SpannableGridStyle]
 /// - [SpannableGridSize]
+/// - [SpannableGridCompactingStrategy]
 ///
 class SpannableGrid extends StatefulWidget {
   SpannableGrid({
@@ -50,6 +51,7 @@ class SpannableGrid extends StatefulWidget {
     this.gridSize = SpannableGridSize.parentWidth,
     this.onCellChanged,
     this.showGrid = false,
+    this.compactingStrategy = SpannableGridCompactingStrategy.none,
   }) : super(key: key);
 
   /// Items data
@@ -109,6 +111,14 @@ class SpannableGrid extends StatefulWidget {
   ///
   final bool showGrid;
 
+  /// How the grid should be compacted.
+  ///
+  /// Defines how the grid should be compacted and if yes, in what order.
+  ///
+  /// Default strategy is to not compact at all.
+  ///
+  final SpannableGridCompactingStrategy compactingStrategy;
+
   @override
   _SpannableGridState createState() => _SpannableGridState();
 }
@@ -133,12 +143,18 @@ class _SpannableGridState extends State<SpannableGrid> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (widget.compactingStrategy != SpannableGridCompactingStrategy.none) {
+      _compactCells();
+    }
     _updateCellsAndChildren();
   }
 
   @override
   void didUpdateWidget(SpannableGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.compactingStrategy != SpannableGridCompactingStrategy.none) {
+      _compactCells();
+    }
     _updateCellsAndChildren();
   }
 
@@ -186,6 +202,10 @@ class _SpannableGridState extends State<SpannableGrid> {
       widget.onCellChanged?.call(_editingCell);
       _isEditing = false;
       _editingCell = null;
+
+      if (widget.compactingStrategy != SpannableGridCompactingStrategy.none) {
+        _compactCells();
+      }
       _updateCellsAndChildren();
     });
   }
@@ -199,6 +219,135 @@ class _SpannableGridState extends State<SpannableGrid> {
     _addContentCells();
     _calculateAvailableCells();
     _addContentChildren();
+  }
+
+  void _compactRow() {
+    for (SpannableGridCellData cell in widget.cells) {
+      int currentCellRowStart =
+          (cell.row - 1); // -1 because cell.row starts with 1
+      int currentCellColumnStart =
+          (cell.column - 1); // -1 because cell.row starts with 1
+      /// Exclusive end
+      int currentCellRowEnd = currentCellRowStart + cell.rowSpan;
+
+      /// Exclusive end
+      int currentCellColumnEnd = currentCellColumnStart + cell.columnSpan;
+
+      if (currentCellRowStart > 0) {
+        // Check space above for column span
+        for (int rowAbove = currentCellRowStart - 1;
+            rowAbove >= 0;
+            rowAbove--) {
+          // Check if above has the space for this cell including its columnSpan
+          bool rowOccupied = _availableCells[rowAbove]
+              .getRange(currentCellColumnStart, currentCellColumnEnd)
+              .any((element) => element == false);
+          if (!rowOccupied) {
+            // Move cell up (update _availableCells and cell.row)
+            for (int i = currentCellColumnStart;
+                i < currentCellColumnEnd;
+                i++) {
+              _availableCells[rowAbove][i] = false;
+              // Mark row below as available
+              _availableCells[currentCellRowEnd - 1][i] = true;
+            }
+            cell.row--;
+            // Update currentCellRow start and end
+            currentCellRowStart = (cell.row - 1);
+            currentCellRowEnd = currentCellRowStart + cell.rowSpan;
+          } else {
+            // Row above is occupied -> this cell cannot be further compacted
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void _compactColumn() {
+    for (SpannableGridCellData cell in widget.cells) {
+      int currentCellRowStart =
+          (cell.row - 1); // -1 because cell.row starts with 1
+      int currentCellColumnStart =
+          (cell.column - 1); // -1 because cell.row starts with 1
+      /// Exclusive end
+      int currentCellRowEnd = currentCellRowStart + cell.rowSpan;
+
+      /// Exclusive end
+      int currentCellColumnEnd = currentCellColumnStart + cell.columnSpan;
+
+      if (currentCellColumnStart > 0) {
+        // Check space above for column span
+        for (int columnLeft = currentCellColumnStart - 1;
+            columnLeft >= 0;
+            columnLeft--) {
+          // Check if above has the space for this cell including its columnSpan
+          bool columnOccupied = _availableCells
+              .getRange(currentCellRowStart, currentCellRowEnd)
+              .any((element) => element[columnLeft] == false);
+          if (!columnOccupied) {
+            // Move cell left (update _availableCells and cell.column)
+            for (int i = currentCellRowStart; i < currentCellRowEnd; i++) {
+              _availableCells[i][columnLeft] = false;
+              // Mark row below as available
+              _availableCells[i][currentCellColumnEnd - 1] = true;
+            }
+            cell.column--;
+            // Update currentCellColumn start and end
+            currentCellColumnStart = (cell.column - 1);
+            currentCellColumnEnd = currentCellColumnStart + cell.columnSpan;
+          } else {
+            // Column left is occupied -> this cell cannot be further compacted
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void _compactCells() {
+    // Clear current state
+    _cells.clear();
+    _children.clear();
+    _addContentCells();
+    _calculateAvailableCells();
+
+    if (widget.compactingStrategy == SpannableGridCompactingStrategy.rowOnly ||
+        widget.compactingStrategy == SpannableGridCompactingStrategy.rowFirst) {
+      // Sort by rows (then columns)
+      // Sorting required due to otherwise compacting missing cell (because it tries to compact this cell before cell above/left of it)
+      widget.cells.sort((cell1, cell2) {
+        int rowCompare = cell1.row.compareTo(cell2.row);
+        return rowCompare == 0
+            ? cell1.column.compareTo(cell2.column)
+            : rowCompare;
+      });
+      // Compact rows
+      _compactRow();
+      if (widget.compactingStrategy ==
+          SpannableGridCompactingStrategy.rowFirst) {
+        // Compact columns
+        _compactColumn();
+      }
+    }
+    if (widget.compactingStrategy ==
+            SpannableGridCompactingStrategy.columnOnly ||
+        widget.compactingStrategy ==
+            SpannableGridCompactingStrategy.columnFirst) {
+      // Sort by columns (then rows)
+      // Sorting required due to otherwise compacting missing cell (because it tries to compact this cell before cell above/left of it)
+      widget.cells.sort((cell1, cell2) {
+        int colCompare = cell1.column.compareTo(cell2.column);
+        return colCompare == 0 ? cell1.row.compareTo(cell2.row) : colCompare;
+      });
+      // Compact columns
+      _compactColumn();
+      if (widget.compactingStrategy ==
+          SpannableGridCompactingStrategy.columnFirst) {
+        // Compact rows
+        _compactRow();
+      }
+    }
   }
 
   void _addEmptyCellsAndChildren() {

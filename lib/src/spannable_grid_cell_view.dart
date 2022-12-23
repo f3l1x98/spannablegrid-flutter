@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 
 import 'spannable_grid_cell_data.dart';
 import 'spannable_grid_options.dart';

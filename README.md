@@ -14,6 +14,7 @@ and rows and supports moving cells inside the grid.
 - Supports editing mode, in which cells can be moved inside the grid to available places 
 - Various editing strategies
 - Styling the grid and its cells
+- Various compacting strategies
 
 ## Usage
 
@@ -114,6 +115,18 @@ The following options are supported:
 | `spacing`  | A space between gird cells.  |
 
 When the `showGrid` parameter is `true` the grid's structure is always visible. Otherwise it appears only in the editing mode.
+
+#### Compacting
+
+Using the `compactingStrategy` parameter it is possible to define how the grid should compact its content.
+
+| Name | Description |
+|---|---|
+| `none` | This is the default strategy and it simply disables compacting |
+| `rowOnly` | This strategy compacts the grid content in the vertical direction only. This means that each GridCell remains in its column but may move up some rows. |
+| `columnOnly` | Analog to `rowOnly` just that this compacts horizontal only, leaving rows untouched. |
+| `rowFirst` | This strategy compacts in both horizontal and vertical direction, but starts with compacting everything vertically. Horizontal compacting is done afterwards. |
+| `columnFirst` | Analog to `rowFirst` just that the compacting order is reversed. |
 
 #### Full example
 
