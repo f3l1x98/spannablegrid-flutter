@@ -1,5 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
+
+/// Determines compacting behaviour of the grid
+///
+/// Strategy [none] means that no compacting will be applied, while [rowOnly] only compacts rows
+/// and [columnOnly] only columns.
+/// Both [rowFirst] and [columnFirst] mean that both rows and columns will be compacted.
+/// The difference is that [rowFirst] will first compact rows and then columns,
+/// while [columnFirst] starts with column compacting.
+///
+enum SpannableGridCompactingStrategy {
+  none,
+  rowOnly,
+  columnOnly,
+  rowFirst,
+  columnFirst
+}
 
 /// Determines behaviour in the editing mode.
 ///
