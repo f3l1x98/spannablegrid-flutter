@@ -49,7 +49,9 @@ class _MyHomePageState extends State<MyHomePage> {
               columns: 4,
               rows: 4,
               cells: _getCells(),
-              compactingStrategy: SpannableGridCompactingStrategy.rowFirst,
+              compactingStrategy: _compactDemo
+                  ? SpannableGridCompactingStrategy.rowFirst
+                  : SpannableGridCompactingStrategy.none,
               onCellChanged: (cell) {
                 print('Cell ${cell!.id} changed');
               },
