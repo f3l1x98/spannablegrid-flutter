@@ -42,6 +42,7 @@ import 'spannable_grid_options.dart';
 class SpannableGrid extends StatefulWidget {
   SpannableGrid({
     Key? key,
+    required this.scrollController,
     required this.cells,
     required this.columns,
     required this.rows,
@@ -53,6 +54,8 @@ class SpannableGrid extends StatefulWidget {
     this.showGrid = false,
     this.compactingStrategy = SpannableGridCompactingStrategy.none,
   }) : super(key: key);
+
+  final ScrollController scrollController;
 
   /// Items data
   ///
@@ -139,6 +142,12 @@ class _SpannableGridState extends State<SpannableGrid> {
   // When dragging started, contains a relative position of the pointer in the
   // dragging widget
   Offset? _dragLocalPosition;
+
+  // TODO currently scroll one 50 pixel the second
+  double pixelPerSecond = 50.0;
+  double _scrollStartOffset =
+      20.0; // TODO adjust delta (MAYBE MAKE THIS CONFIGURABLE)
+  bool _isScrolling = false;
 
   @override
   void didChangeDependencies() {
@@ -427,6 +436,81 @@ class _SpannableGridState extends State<SpannableGrid> {
             ? _canMoveNearby(cell)
             : true,
         onDragStarted: (localPosition) => _dragLocalPosition = localPosition,
+        onDragUpdated: (details) {
+          // TODO both local and globalPosition return global position (on whole screen including appbar etc)
+          // scrollController.position.viewportDimension gives the height of the scrollable container
+          // -> Somehow we need to get size of content above grid (appbar and other widgets)
+          //    FOR TESTING: AppBar: 80, BigGridBtn: 64
+          // TODO for this we need context of scrollView:
+          // -> Convert localPos to global
+          // -> Convert this new global to scrollviewContext.globalToLocal()
+          RenderObject? renderBox = context.findRenderObject();
+          Offset localPosition =
+              (renderBox! as RenderBox).globalToLocal(details.globalPosition);
+          //print("LOCAL POS: ${localPosition.dy}");
+          //print(widget.scrollController.offset);
+          //print(widget.scrollController.position.extentBefore);
+          //print(widget.scrollController.position.viewportDimension);
+          //print("localPosition: ${localPosition.dy}");
+          // TODO THIS HAS ONE ISSUE AND ONE OPTIMIZATION:
+          // ISSUE: This stops when no longer dragging (-> need to "wiggle" to continue scrolling)
+          // OPTIMIZATION: Scroll faster the closer to edge
+          //    -> map range [widget.scrollController.position.viewportDimension - _scrollStartOffset, widget.scrollController.position.viewportDimension] to [0, 1]
+          //    -> scale scrollSpeed depending on this
+          // f(x) = (x - input_start) / (input_end - input_start) * (output_end - output_start) + output_start
+          // TODO +64.0 DUE TO BigGridBTN IN DEMO -> MOVING SingleChildScrollView INSIDE HERE WOULD FIX THIS (BTN NO LONGER CONTAINED)
+          if (localPosition.dy + 64.0 >=
+              widget.scrollController.position.viewportDimension -
+                  _scrollStartOffset) {
+            // TODO THIS IMMEDIATELY SCROLLS DOWN WHEN STARTING IN THE MIDDLE OF THE SCROLL
+            // TODO investigate changing this to use a timer triggering every X ms that jumpsTo a little bit down
+            //  (this method cancels timer and creates new, while stopping simply cancels it)
+            print("SCROLL DOWN");
+            // Start/Continue scrolling
+            if (!_isScrolling) {
+              // Scroll to bottom of scrollbar with calculated velocity
+              double toTravel =
+                  widget.scrollController.position.maxScrollExtent -
+                      widget.scrollController.offset;
+              widget.scrollController.animateTo(
+                widget.scrollController.position.maxScrollExtent,
+                duration:
+                    Duration(seconds: (toTravel / pixelPerSecond).round()),
+                curve: Curves.linear,
+              );
+              setState(() {
+                _isScrolling = true;
+              });
+            }
+          } else if (localPosition.dy + 64.0 <= // TODO handle scroll up
+              widget.scrollController.position.extentBefore +
+                  _scrollStartOffset) {
+            // TODO investigate changing this to use a timer triggering every X ms that jumpsTo a little bit down
+            //  (this method cancels timer and creates new, while stopping simply cancels it)
+            print("SCROLL UP");
+            // Scroll to bottom of scrollbar with calculated velocity
+            double toTravel = widget.scrollController.offset -
+                widget.scrollController.position.minScrollExtent;
+            widget.scrollController.animateTo(
+              widget.scrollController.position.minScrollExtent,
+              duration: Duration(seconds: (toTravel / pixelPerSecond).round()),
+              curve: Curves.linear,
+            );
+            setState(() {
+              _isScrolling = true;
+            });
+          } else {
+            print("SCROLL STOP");
+            // Stop scrolling (if still scrolling)
+            // TODO exitEditing also has to stop scrolling
+            if (_isScrolling) {
+              widget.scrollController.position.hold(() {});
+              setState(() {
+                _isScrolling = false;
+              });
+            }
+          }
+        },
         onEnterEditing: () => _onEnterEditing(cell),
         onExitEditing: _onExitEditing,
         size: _cellSize == null
