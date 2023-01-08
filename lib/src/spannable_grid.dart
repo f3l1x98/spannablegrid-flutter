@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 
@@ -124,7 +126,10 @@ class SpannableGrid extends StatefulWidget {
 }
 
 class _SpannableGridState extends State<SpannableGrid> {
-  final _availableCells = <List<bool>>[];
+  final GlobalKey rootKey = GlobalKey();
+  //final _availableCells = <List<bool>>[];
+  // Maps the grid to the id of the CellData in this cell (or null if empty)
+  final _grid = <List<Object?>>[];
 
   final _cells = <Object, SpannableGridCellData>{};
 
@@ -139,6 +144,10 @@ class _SpannableGridState extends State<SpannableGrid> {
   // When dragging started, contains a relative position of the pointer in the
   // dragging widget
   Offset? _dragLocalPosition;
+
+  // When dragging this stores the row and col above the dragging widget currently hovers
+  // dx is the column and dy the row
+  Offset? _dragLastHoverCellPosition;
 
   @override
   void didChangeDependencies() {
@@ -162,6 +171,7 @@ class _SpannableGridState extends State<SpannableGrid> {
   Widget build(BuildContext context) {
     return _constrainGrid(
       child: CustomMultiChildLayout(
+        key: rootKey,
         delegate: SpannableGridDelegate(
             cells: _cells,
             columns: widget.columns,
@@ -221,6 +231,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     _addContentChildren();
   }
 
+  // TODO check if optimizing with new _grid is possible (iterating over _grid is bad in case of many empty cells)
   void _compactRow() {
     for (SpannableGridCellData cell in widget.cells) {
       int currentCellRowStart =
@@ -239,17 +250,17 @@ class _SpannableGridState extends State<SpannableGrid> {
             rowAbove >= 0;
             rowAbove--) {
           // Check if above has the space for this cell including its columnSpan
-          bool rowOccupied = _availableCells[rowAbove]
+          bool rowOccupied = _grid[rowAbove]
               .getRange(currentCellColumnStart, currentCellColumnEnd)
-              .any((element) => element == false);
+              .any((element) => element != null);
           if (!rowOccupied) {
             // Move cell up (update _availableCells and cell.row)
             for (int i = currentCellColumnStart;
                 i < currentCellColumnEnd;
                 i++) {
-              _availableCells[rowAbove][i] = false;
+              _grid[rowAbove][i] = cell.id;
               // Mark row below as available
-              _availableCells[currentCellRowEnd - 1][i] = true;
+              _grid[currentCellRowEnd - 1][i] = null;
             }
             cell.row--;
             // Update currentCellRow start and end
@@ -264,6 +275,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     }
   }
 
+  // TODO check if optimizing with new _grid is possible (iterating over _grid is bad in case of many empty cells)
   void _compactColumn() {
     for (SpannableGridCellData cell in widget.cells) {
       int currentCellRowStart =
@@ -282,15 +294,15 @@ class _SpannableGridState extends State<SpannableGrid> {
             columnLeft >= 0;
             columnLeft--) {
           // Check if above has the space for this cell including its columnSpan
-          bool columnOccupied = _availableCells
+          bool columnOccupied = _grid
               .getRange(currentCellRowStart, currentCellRowEnd)
-              .any((element) => element[columnLeft] == false);
+              .any((element) => element[columnLeft] != null);
           if (!columnOccupied) {
             // Move cell left (update _availableCells and cell.column)
             for (int i = currentCellRowStart; i < currentCellRowEnd; i++) {
-              _availableCells[i][columnLeft] = false;
+              _grid[i][columnLeft] = cell.id;
               // Mark row below as available
-              _availableCells[i][currentCellColumnEnd - 1] = true;
+              _grid[i][currentCellColumnEnd - 1] = null;
             }
             cell.column--;
             // Update currentCellColumn start and end
@@ -394,7 +406,7 @@ class _SpannableGridState extends State<SpannableGrid> {
                         x > widget.columns) {
                       return false;
                     }
-                    if (!_availableCells[y - 1][x - 1]) {
+                    if (!_isCellAvailable(x - 1, y - 1)) {
                       return false;
                     }
                   }
@@ -427,6 +439,96 @@ class _SpannableGridState extends State<SpannableGrid> {
             ? _canMoveNearby(cell)
             : true,
         onDragStarted: (localPosition) => _dragLocalPosition = localPosition,
+        onDragUpdated: (details) {
+          RenderBox? box =
+              rootKey.currentContext?.findRenderObject() as RenderBox?;
+          if (box != null && _cellSize != null) {
+            Offset boxLocal = box.globalToLocal(details.globalPosition);
+
+            // Check if above root container
+            if (boxLocal.dx >= 0.0 && boxLocal.dy >= 0.0) {
+              // Get column and row of cell the pointer is above
+              int col = boxLocal.dx ~/ _cellSize!.width;
+              int row = boxLocal.dy ~/ _cellSize!.height;
+              print("(Row, Col) = (${row}, ${col})");
+
+              // Check if above new cell
+              if (_dragLastHoverCellPosition != null &&
+                  (_dragLastHoverCellPosition!.dx != col ||
+                      _dragLastHoverCellPosition!.dy != row)) {
+                _dragLastHoverCellPosition =
+                    Offset(col.toDouble(), row.toDouble());
+
+                // TODO IDEA: JUST F IT AND PUSH EVERYTHING DOWN BY ROWSPAN
+                // Check if enough space where placed
+                if (!_canCellBePlacedAt(col, row, cell)) {
+                  // Not enough space -> push other cells aside IF POSSIBLE
+
+                  // Get list of all cells that block this space
+                  Set<Object> blockingCellIds = {};
+                  for (int r = row; r < row + cell.rowSpan; r++) {
+                    for (int c = col; c < col + cell.columnSpan; c++) {
+                      Object? cellId = _grid[r][c];
+                      if (cellId != null) {
+                        blockingCellIds.add(cellId);
+                      }
+                    }
+                  }
+                  // TODO each of this blocking cells has to be moved cell.rowSpan + THE NUMBER OF ROWS IT STARTS ABOVE row
+                  int startRowOfLargestBlockingCell =
+                      blockingCellIds.map((e) => _cells[e]!.row).reduce(min) -
+                          1;
+                  int requiredToPushAdditionally =
+                      row - startRowOfLargestBlockingCell;
+                  int totalRequiredToPush =
+                      requiredToPushAdditionally + cell.rowSpan;
+
+                  // TODO check if the blocking cells can be moved up (only them, not all cells above as well)
+
+                  // Check if enough space at bottom
+                  // TODO NOT ONLY BY cell.rowSpan BUT ALSO POTENTIALLY MORE IF A CELL THAT OCCUPIES THIS PLACE ALSO OCCUPIES SPACE ABOVE
+                  bool notEnoughSpace = _grid
+                      .getRange(
+                          _grid.length - totalRequiredToPush, _grid.length)
+                      .any((list) => list.any((element) => element != null));
+                  if (!notEnoughSpace) {
+                    // Move everything down by cell.rowSpan
+                    // Store already updated cells inorder to prevent updating multiple times (happens if col- or rowSpan > 1)
+                    List<Object> alreadyHandled = [cell.id];
+                    for (int rowIndex = widget.rows - 1 - totalRequiredToPush;
+                        rowIndex >= row;
+                        rowIndex--) {
+                      for (int colIndex = 0;
+                          colIndex < widget.columns;
+                          colIndex++) {
+                        var cellId = _grid[rowIndex][colIndex];
+                        if (cellId != null &&
+                            !alreadyHandled.contains(cellId)) {
+                          _cells[cellId]!.row += totalRequiredToPush;
+                          alreadyHandled.add(cellId);
+                        }
+                      }
+                    }
+                    _updateCellsAndChildren();
+                    setState(() {});
+                  }
+                }
+
+                // Get cell at this pos and calc how/if pushing aside is possible
+                // TODO IMPORTANT: THIS WILL BE RECURSIVE (this cell might need to push aside other cells (MULTIPLE AT ONCE))
+                // TODO IGNORE DRAGGED CELL FOR THIS ONE (it does not need to be pushed aside)
+                // TODO RECURSIVE FUNCTION
+                //_pushAside(row, col, cell.rowSpan, cell.columnSpan);
+                // TODO UPDATE POS FOR ALL CELLS THAT HAVE TO BE PUSHED ASIDE (SHOULD BE RETURNED BY _pushAside INC INDICATOR WHETHER POSSIBLE AT ALL)
+              } else if (_dragLastHoverCellPosition == null) {
+                // First time called -> most certainly still above start cell
+                // TODO TEST IF THAT IS GUARANTEED
+                _dragLastHoverCellPosition =
+                    Offset(col.toDouble(), row.toDouble());
+              }
+            }
+          }
+        },
         onEnterEditing: () => _onEnterEditing(cell),
         onExitEditing: _onExitEditing,
         size: _cellSize == null
@@ -442,14 +544,62 @@ class _SpannableGridState extends State<SpannableGrid> {
     }
   }
 
-  void _calculateAvailableCells() {
-    _availableCells.clear();
-    for (int row = 1; row <= widget.rows; row++) {
-      var rowCells = <bool>[];
-      for (int column = 1; column <= widget.columns; column++) {
-        rowCells.add(true);
+  // TODO DOC
+  // TODO return sth like ids of cells that would need to be adjusted AND bool whether pushing is even possible
+  /*bool _pushAside(int row, int col, int pushedRows, int pushedCols) {
+
+    for (int rowIndex = row; rowIndex < row + pushedRows; rowIndex++) {
+      for (int colIndex = col; colIndex < col + pushedCols; colIndex++) {
+        Object? currentCellId = _grid[rowIndex][colIndex];
+
+        if (currentCellId == null) {
+          // Empty -> nothing to do
+        } else {
+          int rowLeftToPush = pushedRows - (rowIndex - row);
+          int colLeftToPush = pushedCols - (colIndex - col);
+          _pushAside(, , rowLeftToPush, colLeftToPush);
+        }
       }
-      _availableCells.add(rowCells);
+    }
+
+
+
+    // Get all (unique) ids of cells that occupy the required space
+    Set<Object?> ids = {};
+    for (int i = row; i < row + pushedRows; i++) {
+      ids.addAll(_grid[i].getRange(col, col + pushedCols));
+    }
+
+    // TODO THIS PROBABLY HAS TO BE DONE IN CERTAIN ORDER
+    // (otherwise if 2x2 space is required which is occupied by 1x1 cells -> first cell pushes second cell away which is later pushed again)
+    // TODO FINAL UPDATE OF POS SHOULD BE DONE FOR ALL REQUIRED CHILDREN AT THE END OF EVERYTHING 
+    //(otherwise some cells will be pushed only to later discover that pushing isn't even possible)
+    bool pushingPossible = true;
+    for (Object? id in ids) {
+      if (id == null) {
+        // Empty cell -> done
+      } else {
+        // Try to move aside
+        // Check if this cell could be moved to right (enough space for it to the right of new element)
+        // TODO
+        // 
+        // TODO decide how to push aside (first to right or down (inside row or col))
+        // TODO the amount how much to push aside depends on current pos and 
+        _pushAside(, , );
+      }
+    }
+  }*/
+
+  // TODO optimize for new _grid instead of _availableCells
+  void _calculateAvailableCells() {
+    // TODO optimize for new _grid instead of _availableCells
+    _grid.clear();
+    for (int row = 1; row <= widget.rows; row++) {
+      var rowCells = <Object?>[];
+      for (int column = 1; column <= widget.columns; column++) {
+        rowCells.add(null);
+      }
+      _grid.add(rowCells);
     }
     for (SpannableGridCellData cell in _cells.values) {
       // Skip empty cells (grid background) and selected cell
@@ -458,12 +608,13 @@ class _SpannableGridState extends State<SpannableGrid> {
         for (int column = cell.column;
             column <= cell.column + cell.columnSpan - 1;
             column++) {
-          _availableCells[row - 1][column - 1] = false;
+          _grid[row - 1][column - 1] = cell.id;
         }
       }
     }
   }
 
+  // TODO optimize for new _grid instead of _availableCells
   bool _canMoveNearby(SpannableGridCellData cell) {
     final minColumn = cell.column;
     final maxColumn = cell.column + cell.columnSpan - 1;
@@ -473,7 +624,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     if (cell.row > 1) {
       bool sideResult = true;
       for (int column = minColumn; column <= maxColumn; column++) {
-        if (!_availableCells[cell.row - 2][column - 1]) {
+        if (!_isCellAvailable(column - 1, cell.row - 2)) {
           sideResult = false;
           break;
         }
@@ -484,7 +635,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     if (cell.row + cell.rowSpan - 1 < widget.rows) {
       bool sideResult = true;
       for (int column = minColumn; column <= maxColumn; column++) {
-        if (!_availableCells[cell.row + cell.rowSpan - 1][column - 1]) {
+        if (!_isCellAvailable(column - 1, cell.row + cell.rowSpan - 1)) {
           sideResult = false;
           break;
         }
@@ -495,7 +646,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     if (cell.column > 1) {
       bool sideResult = true;
       for (int row = minRow; row <= maxRow; row++) {
-        if (!_availableCells[row - 1][cell.column - 2]) {
+        if (!_isCellAvailable(cell.column - 2, row - 1)) {
           sideResult = false;
           break;
         }
@@ -506,7 +657,7 @@ class _SpannableGridState extends State<SpannableGrid> {
     if (cell.column + cell.columnSpan - 1 < widget.columns) {
       bool sideResult = true;
       for (int row = minRow; row <= maxRow; row++) {
-        if (!_availableCells[row - 1][cell.column + cell.columnSpan - 1]) {
+        if (!_isCellAvailable(cell.column + cell.columnSpan - 1, row - 1)) {
           sideResult = false;
           break;
         }
@@ -514,5 +665,25 @@ class _SpannableGridState extends State<SpannableGrid> {
       if (sideResult) return true;
     }
     return false;
+  }
+
+  bool _isCellAvailable(int x, int y) {
+    return _grid[y][x] == null;
+  }
+
+  bool _canCellBePlacedAt(int x, int y, SpannableGridCellData cell) {
+    int rowEnd = y + cell.rowSpan - 1;
+    int colEnd = x + cell.columnSpan - 1;
+    if (rowEnd >= widget.rows || colEnd >= widget.columns) {
+      return false;
+    }
+    for (int row = y; row <= rowEnd; row++) {
+      for (int col = x; col <= colEnd; col++) {
+        if (!_isCellAvailable(col, row)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 }

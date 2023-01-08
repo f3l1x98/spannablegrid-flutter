@@ -54,6 +54,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   : SpannableGridCompactingStrategy.none,
               onCellChanged: (cell) {
                 print('Cell ${cell!.id} changed');
+                print('${cell.row}, ${cell.column}');
               },
             ),
             Padding(
