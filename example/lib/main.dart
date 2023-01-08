@@ -46,6 +46,7 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             SpannableGrid(
+              scrollController: ScrollController(),
               columns: 4,
               rows: 4,
               cells: _getCells(),

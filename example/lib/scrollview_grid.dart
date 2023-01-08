@@ -9,6 +9,8 @@ class ScrollViewGrid extends StatefulWidget {
 }
 
 class _ScrollViewGridState extends State<ScrollViewGrid> {
+  // TODO test whether it would be possible to automatically scroll when draggable is at bottom/top of scrollable
+  final ScrollController _controller = ScrollController();
   bool _bigGrid = false;
 
   @override
@@ -18,6 +20,7 @@ class _ScrollViewGridState extends State<ScrollViewGrid> {
         title: const Text("ScrollView Demo"),
       ),
       body: SingleChildScrollView(
+        controller: _controller,
         child: Column(
           children: [
             Padding(
@@ -32,12 +35,14 @@ class _ScrollViewGridState extends State<ScrollViewGrid> {
               ),
             ),
             SpannableGrid(
+              scrollController: _controller,
               gridSize: SpannableGridSize.parentWidth,
               cells: _getCells(context),
               columns: 4,
               rows: _bigGrid ? 20 : 10,
               compactingStrategy: SpannableGridCompactingStrategy.rowFirst,
               onCellChanged: (cell) {
+                print(_controller.offset);
                 print('Cell ${cell!.id} changed');
               },
             ),
